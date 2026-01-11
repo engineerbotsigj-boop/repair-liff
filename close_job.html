@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ระบบปิดงานช่าง</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
     body { background-color: #f8f9fa; padding: 20px; font-family: 'Sarabun', sans-serif; }
     .hidden { display: none; }
-    .preview-img { max-width: 100%; height: auto; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    /* สไตล์สำหรับรูป Preview */
+    .preview-thumb { width: 80px; height: 80px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     #loadingOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); display:none; flex-direction:column; justify-content:center; align-items:center; z-index:9999; }
     
     /* กล่องรายละเอียดงาน */
@@ -71,8 +73,9 @@
 
     <div class="mb-4">
       <label class="form-label fw-bold">📸 รูปภาพผลงาน (After)</label>
-      <input type="file" class="form-control" id="imageFile" accept="image/*">
-      <img id="preview" class="preview-img hidden">
+      <input type="file" class="form-control" id="imageFile" accept="image/*" multiple>
+      <div id="preview-container" class="d-flex flex-wrap gap-2 mt-2"></div>
+      <div class="form-text text-muted small">*เลือกได้สูงสุด 5 รูป</div>
     </div>
 
     <button type="submit" class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm">บันทึกข้อมูล</button>
@@ -80,7 +83,7 @@
 </div>
 
 <script>
-  // 🔥 แก้ 2 บรรทัดนี้เหมือนเดิมครับ
+  // 🔥 อย่าลืมตรวจสอบ LIFF ID และ Web App URL ให้ตรงกับปัจจุบันนะครับ
   const LIFF_ID = "2008866702-1kmRkgC8"; 
   const GAS_EXEC_URL = "https://script.google.com/macros/s/AKfycbwrPOLJFauOPQ9clmnrnxAn-jcw5SjJONa4Ax-4Dn-V43YOBKpudo3NOSAjHk3HWF2w/exec"; 
 
@@ -89,6 +92,9 @@
   let mode = params.get('mode'); 
   let userId = "";
   let displayName = "";
+  
+  // ตัวแปรเก็บรูปภาพทั้งหมด (Array)
+  let uploadedImages = [];
 
   window.onload = async function() {
     document.getElementById('jobIdDisplay').innerText = jobId || "-";
@@ -101,14 +107,10 @@
       document.getElementById('extDate').required = true;
     }
 
-    // 1. เริ่มโหลดรายละเอียดงานทันที (ไม่ต้องรอ Login)
     fetchJobDetails();
-
-    // 2. เริ่มระบบ LIFF Login
     await initializeLiff();
   };
 
-  // 🆕 ฟังก์ชันดึงรายละเอียดงานจาก GAS
   function fetchJobDetails() {
     if(!jobId) return;
     
@@ -118,9 +120,9 @@
     })
     .then(res => res.json())
     .then(data => {
-        document.getElementById('loadingDetail').classList.add('hidden'); // ซ่อนตัวโหลด
+        document.getElementById('loadingDetail').classList.add('hidden');
         if(data.status === 'success') {
-            document.getElementById('jobDetailSection').classList.remove('hidden'); // โชว์กล่อง
+            document.getElementById('jobDetailSection').classList.remove('hidden');
             document.getElementById('txtDetail').innerText = data.detail;
             document.getElementById('txtLocation').innerText = data.location;
             document.getElementById('txtReporter').innerText = data.reporter;
@@ -148,34 +150,39 @@
     }
   }
 
-  // Preview รูป
-  document.getElementById('imageFile').addEventListener('change', function(e) {
-    if (e.target.files && e.target.files[0]) {
-      let reader = new FileReader();
-      reader.onload = function(e) {
-        document.getElementById('preview').src = e.target.result;
-        document.getElementById('preview').classList.remove('hidden');
-      }
-      reader.readAsDataURL(e.target.files[0]);
+  // 👇 ส่วนจัดการรูปภาพ (Multiple Images)
+  $('#imageFile').on('change', function(e) {
+    const files = e.target.files;
+    $('#preview-container').empty(); // เคลียร์รูปเก่า
+    uploadedImages = []; // เคลียร์ array
+
+    if (files.length > 0) {
+        // จำกัดแค่ 5 รูป
+        let limit = Math.min(files.length, 5);
+        if(files.length > 5) alert("เลือกได้สูงสุด 5 รูปครับ (ระบบจะตัดเหลือ 5 รูปแรก)");
+
+        for(let i=0; i<limit; i++) {
+            const file = files[i];
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const base64String = event.target.result;
+                uploadedImages.push(base64String); // เก็บ base64 ลง array
+
+                // สร้าง thumbnail
+                const imgHtml = `<img src="${base64String}" class="preview-thumb">`;
+                $('#preview-container').append(imgHtml);
+            };
+            reader.readAsDataURL(file);
+        }
     }
   });
 
-  // Submit Form
+  // 👇 Submit Form
   document.getElementById('closeForm').addEventListener('submit', function(e) {
     e.preventDefault();
     document.getElementById('loadingOverlay').style.display = 'flex';
 
-    let file = document.getElementById('imageFile').files[0];
-    if (file) {
-      let reader = new FileReader();
-      reader.onload = function(e) { submitData(e.target.result); }
-      reader.readAsDataURL(file);
-    } else {
-      submitData(""); 
-    }
-  });
-
-  function submitData(base64Image) {
+    // ส่งข้อมูลไป GAS
     let payload = {
       action: 'close_job',
       jobId: jobId,
@@ -185,7 +192,7 @@
       remark: document.getElementById('remark').value,
       material: document.getElementById('material').value,
       extDate: document.getElementById('extDate').value,
-      image: base64Image
+      images: uploadedImages // ส่งเป็น Array ไปเลย
     };
 
     fetch(GAS_EXEC_URL, {
@@ -206,7 +213,7 @@
       document.getElementById('loadingOverlay').style.display = 'none';
       alert("Error: " + err);
     });
-  }
+  });
 </script>
 
 </body>
