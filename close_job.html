@@ -6,11 +6,21 @@
   <title>ระบบปิดงานช่าง</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
     body { background-color: #f8f9fa; padding: 20px; font-family: 'Sarabun', sans-serif; }
     .hidden { display: none; }
     .preview-img { max-width: 100%; height: auto; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     #loadingOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); display:none; flex-direction:column; justify-content:center; align-items:center; z-index:9999; }
+    
+    /* กล่องรายละเอียดงาน */
+    .job-info-card {
+        background-color: #e9ecef;
+        border-left: 5px solid #0d6efd;
+        border-radius: 5px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
@@ -21,24 +31,37 @@
 </div>
 
 <div class="container" style="max-width: 600px;">
-  <div class="text-center mb-4">
+  
+  <div class="text-center mb-3">
     <h4 id="pageTitle" class="fw-bold text-primary">แจ้งปิดงาน ✅</h4>
-    <p class="text-muted small">Job ID: <span id="jobIdDisplay" class="badge bg-secondary">...</span></p>
-    <div id="userProfile" class="d-flex justify-content-center align-items-center gap-2 hidden">
+    <div class="d-flex justify-content-center align-items-center gap-2 mt-2">
+        <span class="badge bg-secondary">ID: <span id="jobIdDisplay">...</span></span>
+    </div>
+    <div id="userProfile" class="d-flex justify-content-center align-items-center gap-2 mt-2 hidden">
         <img id="userPicture" src="" style="width: 30px; height: 30px; border-radius: 50%;">
         <span id="userName" class="small text-dark fw-bold"></span>
     </div>
   </div>
 
+  <div id="jobDetailSection" class="job-info-card hidden">
+      <h6 class="fw-bold text-dark mb-1">📋 ข้อมูลงานแจ้งซ่อม</h6>
+      <p class="mb-1 small text-muted">อาการ: <span id="txtDetail" class="text-dark fw-bold">...</span></p>
+      <p class="mb-1 small text-muted">สถานที่: <span id="txtLocation" class="text-dark">...</span></p>
+      <p class="mb-0 small text-muted">ผู้แจ้ง: <span id="txtReporter" class="text-dark">...</span></p>
+  </div>
+  <div id="loadingDetail" class="text-center small text-muted mb-3">
+      ⏳ กำลังโหลดรายละเอียดงาน...
+  </div>
+
   <form id="closeForm">
     <div class="mb-3">
       <label class="form-label fw-bold">📝 รายละเอียดการซ่อม / สาเหตุ</label>
-      <textarea class="form-control" id="remark" rows="3" required placeholder="เช่น เปลี่ยนคาปาซิเตอร์, เดินสายไฟใหม่"></textarea>
+      <textarea class="form-control" id="remark" rows="3" required placeholder="เช่น เปลี่ยนเปลี่ยนท่อใหม่, เดินสายไฟใหม่"></textarea>
     </div>
 
     <div class="mb-3">
       <label class="form-label fw-bold">🔩 วัสดุ/อะไหล่ที่ใช้</label>
-      <input type="text" class="form-control" id="material" placeholder="เช่น หลอดไฟ LED 18W x 2 (ถ้าไม่มีให้เว้นว่าง)">
+      <input type="text" class="form-control" id="material" placeholder="(ถ้าไม่มีให้เว้นว่าง)">
     </div>
 
     <div class="mb-3 hidden" id="extDateGroup">
@@ -57,22 +80,20 @@
 </div>
 
 <script>
-  // 🔥 ตั้งค่าตรงนี้ครับ
-  const LIFF_ID = "2008866702-1kmRkgC8"; // เอา LIFF ID ใหม่มาใส่ตรงนี้
-  const GAS_EXEC_URL = "https://script.google.com/macros/s/AKfycbwrPOLJFauOPQ9clmnrnxAn-jcw5SjJONa4Ax-4Dn-V43YOBKpudo3NOSAjHk3HWF2w/exec"; // ลิงก์ Exec ล่าสุดจาก GAS
+  // 🔥 แก้ 2 บรรทัดนี้เหมือนเดิมครับ
+  const LIFF_ID = "2008866702-1kmRkgC8"; 
+  const GAS_EXEC_URL = "https://script.google.com/macros/s/AKfycbwrPOLJFauOPQ9clmnrnxAn-jcw5SjJONa4Ax-4Dn-V43YOBKpudo3NOSAjHk3HWF2w/exec"; 
 
-  // ตัวแปรระบบ
   let params = new URLSearchParams(window.location.search);
   let jobId = params.get('jobId');
   let mode = params.get('mode'); 
   let userId = "";
   let displayName = "";
 
-  // 1. เริ่มทำงานเมื่อโหลด
   window.onload = async function() {
     document.getElementById('jobIdDisplay').innerText = jobId || "-";
     
-    // เช็คโหมด (ปิดงาน vs ส่งซ่อม)
+    // ตั้งค่าหน้าจอตามโหมด
     if (mode === 'external') {
       document.getElementById('pageTitle').innerText = "🛠️ ส่งซ่อม / รออะไหล่";
       document.getElementById('pageTitle').className = "fw-bold text-warning";
@@ -80,34 +101,54 @@
       document.getElementById('extDate').required = true;
     }
 
-    // เริ่ม LIFF
+    // 1. เริ่มโหลดรายละเอียดงานทันที (ไม่ต้องรอ Login)
+    fetchJobDetails();
+
+    // 2. เริ่มระบบ LIFF Login
     await initializeLiff();
   };
 
-  // 2. ฟังก์ชัน LIFF Login
+  // 🆕 ฟังก์ชันดึงรายละเอียดงานจาก GAS
+  function fetchJobDetails() {
+    if(!jobId) return;
+    
+    fetch(GAS_EXEC_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'get_job_detail', jobId: jobId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('loadingDetail').classList.add('hidden'); // ซ่อนตัวโหลด
+        if(data.status === 'success') {
+            document.getElementById('jobDetailSection').classList.remove('hidden'); // โชว์กล่อง
+            document.getElementById('txtDetail').innerText = data.detail;
+            document.getElementById('txtLocation').innerText = data.location;
+            document.getElementById('txtReporter').innerText = data.reporter;
+        }
+    })
+    .catch(err => console.log("Fetch Error:", err));
+  }
+
   async function initializeLiff() {
     try {
       await liff.init({ liffId: LIFF_ID });
       if (!liff.isLoggedIn()) {
         liff.login();
       } else {
-        // ดึงข้อมูล User
         const profile = await liff.getProfile();
         userId = profile.userId;
         displayName = profile.displayName;
         
-        // โชว์รูป Profile เล็กๆ ให้รู้ว่า Login แล้ว
         document.getElementById('userProfile').classList.remove('hidden');
         document.getElementById('userPicture').src = profile.pictureUrl;
         document.getElementById('userName').innerText = displayName;
       }
     } catch (err) {
-      console.error(err);
       alert("LIFF Error: " + err);
     }
   }
 
-  // 3. Preview รูป
+  // Preview รูป
   document.getElementById('imageFile').addEventListener('change', function(e) {
     if (e.target.files && e.target.files[0]) {
       let reader = new FileReader();
@@ -119,7 +160,7 @@
     }
   });
 
-  // 4. ส่งข้อมูล (Submit)
+  // Submit Form
   document.getElementById('closeForm').addEventListener('submit', function(e) {
     e.preventDefault();
     document.getElementById('loadingOverlay').style.display = 'flex';
@@ -127,9 +168,7 @@
     let file = document.getElementById('imageFile').files[0];
     if (file) {
       let reader = new FileReader();
-      reader.onload = function(e) {
-        submitData(e.target.result); 
-      }
+      reader.onload = function(e) { submitData(e.target.result); }
       reader.readAsDataURL(file);
     } else {
       submitData(""); 
@@ -141,16 +180,14 @@
       action: 'close_job',
       jobId: jobId,
       mode: mode,
-      userId: userId,        // ส่ง UserID ไปด้วย
-      userName: displayName, // ส่งชื่อไปด้วย
+      userId: userId,        
+      userName: displayName, 
       remark: document.getElementById('remark').value,
       material: document.getElementById('material').value,
       extDate: document.getElementById('extDate').value,
       image: base64Image
     };
 
-    // ส่งเข้า GAS (ใช้ fetch mode: 'no-cors' ไม่ได้ เพราะเราต้องการดู response)
-    // แต่ GAS Web App รองรับ TextOutput ให้ fetch ปกติได้
     fetch(GAS_EXEC_URL, {
       method: 'POST',
       body: JSON.stringify(payload)
