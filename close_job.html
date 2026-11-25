@@ -5,24 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ระบบปิดงานช่าง</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
     body { background-color: #f8f9fa; padding: 20px; font-family: 'Sarabun', sans-serif; }
-    .hidden { display: none; }
-    /* สไตล์สำหรับรูป Preview */
+    .hidden { display: none !important; }
     .preview-thumb { width: 80px; height: 80px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     #loadingOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); display:none; flex-direction:column; justify-content:center; align-items:center; z-index:9999; }
-    
-    /* กล่องรายละเอียดงาน */
-    .job-info-card {
-        background-color: #e9ecef;
-        border-left: 5px solid #0d6efd;
-        border-radius: 5px;
-        padding: 15px;
-        margin-bottom: 20px;
-    }
+    .job-info-card { background-color: #e9ecef; border-left: 5px solid #0d6efd; border-radius: 5px; padding: 15px; margin-bottom: 20px; }
   </style>
 </head>
 <body>
@@ -32,8 +22,14 @@
   <div class="mt-2 text-primary fw-bold">กำลังบันทึกข้อมูล...</div>
 </div>
 
-<div class="container" style="max-width: 600px;">
-  
+<div class="container hidden text-center" id="successScreen" style="max-width:500px; padding-top:60px;">
+  <div style="font-size:64px;">✅</div>
+  <h4 class="mt-3">บันทึกข้อมูลเรียบร้อยแล้ว</h4>
+  <p class="text-secondary">สามารถปิดหน้านี้ได้เลย</p>
+</div>
+
+<div class="container" id="mainWrap" style="max-width: 600px;">
+
   <div class="text-center mb-3">
     <h4 id="pageTitle" class="fw-bold text-primary">แจ้งปิดงาน ✅</h4>
     <div class="d-flex justify-content-center align-items-center gap-2 mt-2">
@@ -76,30 +72,29 @@
       <input type="file" class="form-control" id="imageFile" accept="image/*" multiple>
       <div id="preview-container" class="d-flex flex-wrap gap-2 mt-2"></div>
       <div class="form-text text-muted small">*เลือกได้สูงสุด 5 รูป</div>
+      <div class="form-text text-danger small">⚠️ ห้ามถ่ายติดผู้ป่วย ญาติ เอกสารผู้ป่วย หรือหน้าจอที่มีข้อมูลผู้ป่วย</div>
     </div>
 
-    <button type="submit" class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm">บันทึกข้อมูล</button>
+    <button type="submit" id="submitBtn" class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow-sm">บันทึกข้อมูล</button>
   </form>
 </div>
 
 <script>
-  // 🔥 อย่าลืมตรวจสอบ LIFF ID และ Web App URL ให้ตรงกับปัจจุบันนะครับ
-  const LIFF_ID = "2008866702-1kmRkgC8"; 
-  const GAS_EXEC_URL = "https://script.google.com/macros/s/AKfycbwrPOLJFauOPQ9clmnrnxAn-jcw5SjJONa4Ax-4Dn-V43YOBKpudo3NOSAjHk3HWF2w/exec"; 
+  const LIFF_ID = "2008866702-1kmRkgC8";
+  const GAS_EXEC_URL = "https://script.google.com/macros/s/AKfycbwrPOLJFauOPQ9clmnrnxAn-jcw5SjJONa4Ax-4Dn-V43YOBKpudo3NOSAjHk3HWF2w/exec";
 
   let params = new URLSearchParams(window.location.search);
   let jobId = params.get('jobId');
-  let mode = params.get('mode'); 
+  let mode = params.get('mode');
   let userId = "";
   let displayName = "";
-  
-  // ตัวแปรเก็บรูปภาพทั้งหมด (Array)
+
   let uploadedImages = [];
+  let pendingImages = 0;
 
   window.onload = async function() {
     document.getElementById('jobIdDisplay').innerText = jobId || "-";
-    
-    // ตั้งค่าหน้าจอตามโหมด
+
     if (mode === 'external') {
       document.getElementById('pageTitle').innerText = "🛠️ ส่งซ่อม / รออะไหล่";
       document.getElementById('pageTitle').className = "fw-bold text-warning";
@@ -113,7 +108,7 @@
 
   function fetchJobDetails() {
     if(!jobId) return;
-    
+
     fetch(GAS_EXEC_URL, {
         method: 'POST',
         body: JSON.stringify({ action: 'get_job_detail', jobId: jobId })
@@ -140,7 +135,7 @@
         const profile = await liff.getProfile();
         userId = profile.userId;
         displayName = profile.displayName;
-        
+
         document.getElementById('userProfile').classList.remove('hidden');
         document.getElementById('userPicture').src = profile.pictureUrl;
         document.getElementById('userName').innerText = displayName;
@@ -150,49 +145,77 @@
     }
   }
 
-  // 👇 ส่วนจัดการรูปภาพ (Multiple Images)
-  $('#imageFile').on('change', function(e) {
+  // เลือกรูป: ย่อขนาดก่อนส่ง (กว้างสุด 1000px, คุณภาพ 0.7) เพื่อไม่ให้ไฟล์ใหญ่เกินไป
+  document.getElementById('imageFile').addEventListener('change', function(e) {
     const files = e.target.files;
-    $('#preview-container').empty(); // เคลียร์รูปเก่า
-    uploadedImages = []; // เคลียร์ array
+    document.getElementById('preview-container').innerHTML = '';
+    uploadedImages = [];
 
-    if (files.length > 0) {
-        // จำกัดแค่ 5 รูป
-        let limit = Math.min(files.length, 5);
-        if(files.length > 5) alert("เลือกได้สูงสุด 5 รูปครับ (ระบบจะตัดเหลือ 5 รูปแรก)");
+    const n = Math.min(files.length, 5);
+    if (files.length > 5) alert("เลือกได้สูงสุด 5 รูปครับ (ระบบจะตัดเหลือ 5 รูปแรก)");
+    pendingImages = n;
+    document.getElementById('submitBtn').disabled = n > 0;
 
-        for(let i=0; i<limit; i++) {
-            const file = files[i];
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                const base64String = event.target.result;
-                uploadedImages.push(base64String); // เก็บ base64 ลง array
+    const done = () => {
+      pendingImages--;
+      if (pendingImages <= 0) document.getElementById('submitBtn').disabled = false;
+    };
 
-                // สร้าง thumbnail
-                const imgHtml = `<img src="${base64String}" class="preview-thumb">`;
-                $('#preview-container').append(imgHtml);
-            };
-            reader.readAsDataURL(file);
-        }
+    for (let i = 0; i < n; i++) {
+      const reader = new FileReader();
+      reader.onerror = done;
+      reader.onload = function(ev) {
+        const img = new Image();
+        img.onerror = done;
+        img.onload = function() {
+          const cvs = document.createElement('canvas');
+          const ctx = cvs.getContext('2d');
+          let w = img.width, h = img.height;
+          if (w > 1000) { h *= 1000 / w; w = 1000; }
+          cvs.width = w; cvs.height = h;
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = cvs.toDataURL('image/jpeg', 0.7);
+          uploadedImages.push(dataUrl);
+          document.getElementById('preview-container').innerHTML += `<img src="${dataUrl}" class="preview-thumb">`;
+          done();
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(files[i]);
     }
   });
 
-  // 👇 Submit Form
+  function showSuccess() {
+    document.getElementById('mainWrap').classList.add('hidden');
+    // เปิดในแอป LINE -> ปิดหน้าต่าง / เปิดในเบราว์เซอร์คอม -> แสดงหน้าสำเร็จ
+    if (liff.isInClient()) {
+      liff.closeWindow();
+    } else {
+      document.getElementById('successScreen').classList.remove('hidden');
+    }
+  }
+
   document.getElementById('closeForm').addEventListener('submit', function(e) {
     e.preventDefault();
+
+    if (pendingImages > 0) {
+      alert("กำลังประมวลผลรูปภาพ กรุณารอสักครู่แล้วกดบันทึกอีกครั้ง");
+      return;
+    }
+
+    document.getElementById('submitBtn').disabled = true;
     document.getElementById('loadingOverlay').style.display = 'flex';
 
-    // ส่งข้อมูลไป GAS
     let payload = {
       action: 'close_job',
       jobId: jobId,
       mode: mode,
-      userId: userId,        
-      userName: displayName, 
+      userId: userId,
+      userName: displayName,
       remark: document.getElementById('remark').value,
       material: document.getElementById('material').value,
       extDate: document.getElementById('extDate').value,
-      images: uploadedImages // ส่งเป็น Array ไปเลย
+      images: uploadedImages
     };
 
     fetch(GAS_EXEC_URL, {
@@ -203,14 +226,15 @@
     .then(data => {
       document.getElementById('loadingOverlay').style.display = 'none';
       if (data.status === 'success') {
-        alert("✅ บันทึกข้อมูลเรียบร้อย!");
-        liff.closeWindow();
+        showSuccess();
       } else {
+        document.getElementById('submitBtn').disabled = false;
         alert("❌ มีข้อผิดพลาด: " + data.message);
       }
     })
     .catch(err => {
       document.getElementById('loadingOverlay').style.display = 'none';
+      document.getElementById('submitBtn').disabled = false;
       alert("Error: " + err);
     });
   });
