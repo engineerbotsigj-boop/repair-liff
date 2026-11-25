@@ -24,9 +24,17 @@
     <p class="mt-3 text-secondary" id="statusText">กำลังยืนยันตัวตน...</p>
   </div>
 
+  <!-- หน้าส่งสำเร็จ (ใช้เมื่อเปิดนอกแอป LINE เช่นบนคอมพิวเตอร์) -->
+  <div class="container hidden text-center" id="successScreen" style="max-width:500px; padding-top:60px;">
+    <div style="font-size:64px;">✅</div>
+    <h4 class="mt-3">ส่งแจ้งซ่อมเรียบร้อยแล้ว</h4>
+    <p class="text-secondary">เจ้าหน้าที่ได้รับเรื่องแล้ว สามารถปิดหน้านี้ได้เลย</p>
+    <button class="btn btn-outline-primary mt-2" onclick="location.reload()">แจ้งซ่อมรายการใหม่</button>
+  </div>
+
   <div class="container hidden" id="mainForm">
     <h4 class="text-center mb-4">📝 ใบแจ้งซ่อมงานวิศวกรรม</h4>
-    
+
     <form id="repairForm">
       <input type="hidden" id="userId">
 
@@ -73,29 +81,36 @@
       </div>
       <div class="mb-3"><label class="form-label">รหัสครุภัณฑ์ (ถ้ามี)</label><input type="text" class="form-control" id="assetId"></div>
       <div class="mb-3"><label class="form-label required">อาการเสีย/รายละเอียด</label><textarea class="form-control" id="detail" rows="3" required></textarea></div>
-      <div class="mb-3"><label class="form-label">รูปภาพประกอบ (สูงสุด 5 รูป)</label><input type="file" class="form-control" id="photos" multiple accept="image/*"><div id="preview" class="mt-2 d-flex flex-wrap gap-2"></div></div>
+      <div class="mb-3">
+        <label class="form-label">รูปภาพประกอบ (สูงสุด 5 รูป)</label>
+        <input type="file" class="form-control" id="photos" multiple accept="image/*">
+        <div class="form-text text-danger">⚠️ ห้ามถ่ายติดผู้ป่วย ญาติ เอกสารผู้ป่วย หรือหน้าจอที่มีข้อมูลผู้ป่วย</div>
+        <div id="preview" class="mt-2 d-flex flex-wrap gap-2"></div>
+      </div>
 
-      <button type="submit" class="btn btn-primary w-100 py-2">ส่งแจ้งซ่อม</button>
+      <button type="submit" id="submitBtn" class="btn btn-primary w-100 py-2">ส่งแจ้งซ่อม</button>
+      <div class="form-text text-center mt-2">ข้อมูลนี้ใช้เพื่อดำเนินการซ่อมเท่านั้น</div>
+      <div class="text-center mt-2"><a href="#" onclick="clearSaved(); return false;" class="small text-secondary">ล้างข้อมูลที่จำไว้ในเครื่องนี้</a></div>
     </form>
   </div>
 
   <script>
-    // 🚨🚨 ใส่ URL ที่ได้จากขั้นตอนที่ 1 (Google Apps Script) ตรงนี้ 🚨🚨
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwrPOLJFauOPQ9clmnrnxAn-jcw5SjJONa4Ax-4Dn-V43YOBKpudo3NOSAjHk3HWF2w/exec';
-    
-    // ใส่ LIFF ID เดิมของคุณ
     const LIFF_ID = '2008863780-Mox0bjZV';
+
+    let processedImages = [];
+    let pendingImages = 0;
 
     async function main() {
       try {
         await liff.init({ liffId: LIFF_ID });
         if (!liff.isLoggedIn()) {
-          liff.login(); // บังคับ Login (GitHub ทำได้ ไม่ Error)
+          liff.login();
           return;
         }
         const profile = await liff.getProfile();
         document.getElementById('userId').value = profile.userId;
-        
+
         loadSavedData();
         document.getElementById('loadingOverlay').classList.add('hidden');
         document.getElementById('mainForm').classList.remove('hidden');
@@ -103,11 +118,31 @@
     }
     main();
 
+    function showSuccess() {
+      document.getElementById('loadingOverlay').classList.add('hidden');
+      document.getElementById('mainForm').classList.add('hidden');
+      // เปิดในแอป LINE (มือถือ) -> ปิดหน้าต่างอัตโนมัติ
+      // เปิดในเบราว์เซอร์ (คอม) -> แสดงหน้าส่งสำเร็จแทน เพราะ closeWindow ใช้ไม่ได้
+      if (liff.isInClient()) {
+        liff.closeWindow();
+      } else {
+        document.getElementById('successScreen').classList.remove('hidden');
+      }
+    }
+
     document.getElementById('repairForm').addEventListener('submit', function(e) {
       e.preventDefault();
+
+      if (pendingImages > 0) {
+        alert("กำลังประมวลผลรูปภาพ กรุณารอสักครู่แล้วกดส่งอีกครั้ง");
+        return;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
       document.getElementById('loadingOverlay').classList.remove('hidden');
       document.getElementById('statusText').innerText = "กำลังส่งข้อมูล...";
-      
+
       localStorage.setItem('rep_name', document.getElementById('name').value);
       localStorage.setItem('rep_dept', document.getElementById('dept').value);
       localStorage.setItem('rep_division', document.getElementById('division').value);
@@ -128,61 +163,85 @@
         images: processedImages
       };
 
+      // ไม่กำหนด headers และไม่ใช้ no-cors เพื่อให้อ่านผลตอบกลับได้ (เหมือนหน้าปิดงาน)
       fetch(GAS_URL, {
         method: 'POST',
-        mode: 'no-cors', 
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       })
-      .then(() => {
-        alert("✅ บันทึกสำเร็จ!");
-        liff.closeWindow();
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          showSuccess();
+        } else {
+          alert("❌ ส่งไม่สำเร็จ: " + (data.message || "ไม่ทราบสาเหตุ"));
+          document.getElementById('loadingOverlay').classList.add('hidden');
+          btn.disabled = false;
+        }
       })
       .catch(err => {
         alert("Error: " + err);
         document.getElementById('loadingOverlay').classList.add('hidden');
+        btn.disabled = false;
       });
     });
 
-    // Helper Functions
     function updateFloors() {
        const b = document.getElementById('building').value;
        const f = document.getElementById('floor');
        f.innerHTML = '<option value="">-- เลือก --</option>'; f.disabled = false;
-       let max = (b.includes('ศูนย์การแพทย์') || b.includes('กาญจนาบริพัฒน์')) ? 5 : 
+       let max = (b.includes('ศูนย์การแพทย์') || b.includes('กาญจนาบริพัฒน์')) ? 5 :
                  (b.includes('กาญจนาปันรักษ์') ? 3 : (b.includes('งานอาคาร') ? 1 : 10));
        for(let i=1; i<=max; i++) f.innerHTML += `<option value="${i}">${i}</option>`;
     }
 
-    let processedImages = [];
     document.getElementById('photos').addEventListener('change', function(e) {
       const files = e.target.files;
       document.getElementById('preview').innerHTML = ''; processedImages = [];
-      for (let i=0; i<Math.min(files.length, 5); i++) {
+      const n = Math.min(files.length, 5);
+      if (files.length > 5) alert("เลือกได้สูงสุด 5 รูป (ระบบจะใช้ 5 รูปแรก)");
+      pendingImages = n;
+      document.getElementById('submitBtn').disabled = n > 0;
+
+      const done = () => {
+        pendingImages--;
+        if (pendingImages <= 0) document.getElementById('submitBtn').disabled = false;
+      };
+
+      for (let i = 0; i < n; i++) {
          const reader = new FileReader();
+         reader.onerror = done;
          reader.onload = function(ev) {
             const img = new Image();
+            img.onerror = done;
             img.onload = function() {
-               const cvs = document.createElement('canvas'); 
+               const cvs = document.createElement('canvas');
                const ctx = cvs.getContext('2d');
                let w = img.width, h = img.height;
-               if(w>1000){ h*=1000/w; w=1000; }
-               cvs.width=w; cvs.height=h;
-               ctx.drawImage(img,0,0,w,h);
-               processedImages.push(cvs.toDataURL('image/jpeg', 0.7));
-               document.getElementById('preview').innerHTML += `<img src="${cvs.toDataURL()}" style="width:60px;height:60px;object-fit:cover;">`;
-            }
+               if (w > 1000) { h *= 1000 / w; w = 1000; }
+               cvs.width = w; cvs.height = h;
+               ctx.drawImage(img, 0, 0, w, h);
+               const dataUrl = cvs.toDataURL('image/jpeg', 0.7);
+               processedImages.push(dataUrl);
+               document.getElementById('preview').innerHTML += `<img src="${dataUrl}" style="width:60px;height:60px;object-fit:cover;">`;
+               done();
+            };
             img.src = ev.target.result;
-         }
+         };
          reader.readAsDataURL(files[i]);
       }
     });
-    
+
     function loadSavedData() {
       if(localStorage.getItem('rep_name')) document.getElementById('name').value = localStorage.getItem('rep_name');
       if(localStorage.getItem('rep_dept')) document.getElementById('dept').value = localStorage.getItem('rep_dept');
       if(localStorage.getItem('rep_division')) document.getElementById('division').value = localStorage.getItem('rep_division');
       if(localStorage.getItem('rep_phone')) document.getElementById('phone').value = localStorage.getItem('rep_phone');
+    }
+
+    function clearSaved() {
+      ['rep_name','rep_dept','rep_division','rep_phone'].forEach(k => localStorage.removeItem(k));
+      ['name','dept','division','phone'].forEach(id => document.getElementById(id).value = '');
+      alert("ล้างข้อมูลที่จำไว้แล้ว");
     }
   </script>
 </body>
