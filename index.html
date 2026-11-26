@@ -189,8 +189,8 @@
        const b = document.getElementById('building').value;
        const f = document.getElementById('floor');
        f.innerHTML = '<option value="">-- เลือก --</option>'; f.disabled = false;
-       let max = (b.includes('ศูนย์การแพทย์') || b.includes('กาญจนาบริพัฒน์')) ? 5 :
-                 (b.includes('กาญจนาปันรักษ์') ? 3 : (b.includes('งานอาคาร') ? 1 : 10));
+       let  = (b.includes('ศูนย์การแพทย์') || b.includes('กาญจนาบริพัฒน์')) ? 5 :
+                 (b.includes('กาญจนาปันรักษ์') ? 3 : (b.includes('งานอาคาร') ? 2 : 10));
        for(let i=1; i<=max; i++) f.innerHTML += `<option value="${i}">${i}</option>`;
     }
 
